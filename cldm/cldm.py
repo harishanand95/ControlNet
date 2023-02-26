@@ -144,24 +144,24 @@ class ControlNet(nn.Module):
         )
         self.zero_convs = nn.ModuleList([self.make_zero_conv(model_channels)])
 
-        self.input_hint_block = TimestepEmbedSequential(
-            conv_nd(dims, hint_channels, 16, 3, padding=1),
-            nn.SiLU(),
-            conv_nd(dims, 16, 16, 3, padding=1),
-            nn.SiLU(),
-            conv_nd(dims, 16, 32, 3, padding=1, stride=2),
-            nn.SiLU(),
-            conv_nd(dims, 32, 32, 3, padding=1),
-            nn.SiLU(),
-            conv_nd(dims, 32, 96, 3, padding=1, stride=2),
-            nn.SiLU(),
-            conv_nd(dims, 96, 96, 3, padding=1),
-            nn.SiLU(),
-            conv_nd(dims, 96, 256, 3, padding=1, stride=2),
-            nn.SiLU(),
-            zero_module(conv_nd(dims, 256, model_channels, 3, padding=1))
-        )
-
+#         self.input_hint_block = TimestepEmbedSequential(
+#             conv_nd(dims, hint_channels, 16, 3, padding=1),
+#             nn.SiLU(),
+#             conv_nd(dims, 16, 16, 3, padding=1),
+#             nn.SiLU(),
+#             conv_nd(dims, 16, 32, 3, padding=1, stride=2),
+#             nn.SiLU(),
+#             conv_nd(dims, 32, 32, 3, padding=1),
+#             nn.SiLU(),
+#             conv_nd(dims, 32, 96, 3, padding=1, stride=2),
+#             nn.SiLU(),
+#             conv_nd(dims, 96, 96, 3, padding=1),
+#             nn.SiLU(),
+#             conv_nd(dims, 96, 256, 3, padding=1, stride=2),
+#             nn.SiLU(),
+#             zero_module(conv_nd(dims, 256, model_channels, 3, padding=1))
+#         )
+        self.input_hint_block = zero_module(conv_nd(self.dims, 4, 320, 1, padding=0)) # 1x1 conv with 4 -> 320
         self._feature_size = model_channels
         input_block_chans = [model_channels]
         ch = model_channels
@@ -285,7 +285,8 @@ class ControlNet(nn.Module):
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
         emb = self.time_embed(t_emb)
 
-        guided_hint = self.input_hint_block(hint, emb, context)
+        # guided_hint = self.input_hint_block(hint, emb, context)
+        guided_hint = self.input_hint_block(hint)
 
         outs = []
 
@@ -334,7 +335,9 @@ class ControlLDM(LatentDiffusion):
         if cond['c_concat'] is None:
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
         else:
-            control = self.control_model(x=x_noisy, hint=torch.cat(cond['c_concat'], 1), timesteps=t, context=cond_txt)
+            encoder_posterior = self.encode_first_stage(torch.cat(cond['c_concat'], 1))
+            hint = self.get_first_stage_encoding(encoder_posterior)
+            control = self.control_model(x=x_noisy, hint=hint, timesteps=t, context=cond_txt)
             control = [c * scale for c, scale in zip(control, self.control_scales)]
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
 
